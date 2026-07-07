@@ -1389,9 +1389,12 @@ function SuccessScreen() {
 }
 
 // ── ROOT ──────────────────────────────────────────────────────────────────────
-export default function RouteMaxApp() {
-  // Detectar rota /sucesso antes de qualquer coisa
+export default function App() {
   if(window.location.pathname === "/sucesso") return <SuccessScreen/>;
+  return <RouteMaxApp/>;
+}
+
+function RouteMaxApp() {
   const [user,setUser]             = useState(null);
   const [authChecked,setAuthChecked] = useState(false);
   const [entries,setEntries]       = useState(loadEntries);
