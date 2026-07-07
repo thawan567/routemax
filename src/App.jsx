@@ -1085,7 +1085,7 @@ function TabComparar() {
           <div style={{fontSize:28,marginBottom:10}}>🔒</div>
           <div style={{fontSize:16,fontWeight:900,color:C.text,marginBottom:6}}>Recurso Pro</div>
           <div style={{fontSize:12,color:C.sub,lineHeight:1.6,marginBottom:18,maxWidth:240}}>Veja qual plataforma está pagando mais na sua região agora.</div>
-          <button style={{background:C.yellow,border:"none",borderRadius:10,padding:"12px 24px",fontSize:13,fontWeight:900,color:"#0A0A0A",cursor:"pointer",fontFamily:"inherit"}}>Assinar por R$19/mês</button>
+          <button style={{background:C.yellow,border:"none",borderRadius:10,padding:"12px 24px",fontSize:13,fontWeight:900,color:"#0A0A0A",cursor:"pointer",fontFamily:"inherit",opacity:loadingCheckout?0.6:1}} onClick={handleAssinar} disabled={loadingCheckout}>{loadingCheckout?"Aguarde...":"Assinar por R$19/mês"}</button>
         </div>
       </div>
     </div>
@@ -1094,6 +1094,26 @@ function TabComparar() {
 
 // ── TAB: PERFIL ───────────────────────────────────────────────────────────────
 function TabPerfil({user,entries,onClear}) {
+  const [loadingCheckout,setLoadingCheckout]=useState(false);
+
+  const handleAssinar = async () => {
+    if(!user?.supaId) { alert("Crie uma conta para assinar o Pro."); return; }
+    setLoadingCheckout(true);
+    try {
+      const res = await fetch("/api/create-checkout", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ userId: user.supaId, email: user.email }),
+      });
+      const { url, error } = await res.json();
+      if(error) throw new Error(error);
+      window.location.href = url;
+    } catch(e) {
+      alert("Erro ao iniciar pagamento. Tente novamente.");
+    } finally {
+      setLoadingCheckout(false);
+    }
+  };
   const [confirm,setConfirm]=useState(false);
   const isCloud = !!user?.supaId;
   return (
@@ -1121,7 +1141,7 @@ function TabPerfil({user,entries,onClear}) {
       <div style={{background:C.card,border:`1px solid ${C.yellow}25`,borderRadius:14,padding:"16px 18px",marginBottom:18}}>
         <div style={{fontSize:13,fontWeight:800,color:C.yellow,marginBottom:4}}>⭐ Vire RouteMax Pro</div>
         <div style={{fontSize:12,color:C.sub,lineHeight:1.6,marginBottom:12}}>Histórico ilimitado, comparativo de plataformas e alertas de horário de pico.</div>
-        <button style={{width:"100%",background:C.yellow,border:"none",borderRadius:10,padding:"11px",fontSize:13,fontWeight:900,color:"#0A0A0A",cursor:"pointer",fontFamily:"inherit"}}>Assinar por R$19/mês</button>
+        <button style={{width:"100%",background:C.yellow,border:"none",borderRadius:10,padding:"11px",fontSize:13,fontWeight:900,color:"#0A0A0A",cursor:"pointer",fontFamily:"inherit",opacity:loadingCheckout?0.6:1}} onClick={handleAssinar} disabled={loadingCheckout}>{loadingCheckout?"Aguarde...":"Assinar por R$19/mês"}</button>
       </div>
       <div style={{borderTop:`1px solid ${C.border}`,paddingTop:16,display:"flex",flexDirection:"column",gap:10}}>
         {!confirm?(
