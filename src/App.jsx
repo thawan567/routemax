@@ -222,6 +222,109 @@ const getInsight = (entries) => {
   return `Seus ${names[best.dow]} rendem ${pct}% a mais que ${names[worst.dow]}.`;
 };
 
+// ── MOTOR: METAS INTELIGENTES ─────────────────────────────────────────────────
+const DOW_NAMES_PT = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
+
+const buildSmartGoalData = (entries, goal) => {
+  const p = getGoalProgress(entries, goal);
+  const hoje = new Date(); hoje.setHours(12,0,0,0);
+  const hojeStr = hoje.toISOString().split("T")[0];
+  const limStr  = new Date(goal.dataLimite).toISOString().split("T")[0];
+  const iniStr  = new Date(goal.dataInicio).toISOString().split("T")[0];
+
+  // Média de lucro por dia da semana (histórico completo)
+  const byDow = {};
+  entries.forEach(e => {
+    const dow = new Date(e.id + "T12:00:00").getDay();
+    if(!byDow[dow]) byDow[dow] = [];
+    byDow[dow].push(e.lucro);
+  });
+  const avgByDow = {};
+  Object.entries(byDow).forEach(([dow, vals]) => {
+    avgByDow[+dow] = vals.reduce((a,b) => a+b, 0) / vals.length;
+  });
+
+  // Ritmo atual: média dos últimos 7 dias
+  const last7 = getLast7();
+  const last7Entries = entries.filter(e => last7.includes(e.id));
+  const ritmoAtual = last7Entries.length > 0
+    ? last7Entries.reduce((a,e) => a + e.lucro, 0) / last7Entries.length
+    : 0;
+
+  // Dias restantes com potencial por dia da semana
+  const remainingByDow = {};
+  for(let i = 1; i <= 45; i++) {
+    const d = new Date(hoje);
+    d.setDate(d.getDate() + i);
+    const ds = d.toISOString().split("T")[0];
+    if(ds > limStr) break;
+    const dow = d.getDay();
+    if(!remainingByDow[dow]) remainingByDow[dow] = 0;
+    remainingByDow[dow]++;
+  }
+
+  const dowOpportunities = Object.entries(remainingByDow)
+    .filter(([dow]) => avgByDow[+dow] !== undefined)
+    .map(([dow, count]) => ({
+      dow: +dow,
+      name: DOW_NAMES_PT[+dow],
+      count,
+      avgLucro: avgByDow[+dow],
+      potential: avgByDow[+dow] * count,
+    }))
+    .sort((a,b) => b.avgLucro - a.avgLucro);
+
+  // Projeção de fechamento baseada no ritmo atual
+  const projecaoFechamento = p.earned + (ritmoAtual * p.dias);
+  const projecaoEmRisco = projecaoFechamento < goal.valor;
+
+  // Dia fraco: hoje registrado mas abaixo de 70% do necessário por dia
+  const todayEntry = entries.find(e => e.id === hojeStr);
+  const diaFraco = todayEntry && p.porDia > 0 && todayEntry.lucro < p.porDia * 0.7;
+  const faltouHoje = diaFraco ? Math.max(0, p.porDia - todayEntry.lucro) : 0;
+  const porDiaAjustado = diaFraco && p.dias > 1
+    ? (p.remaining + faltouHoje) / Math.max(1, p.dias - 1)
+    : p.porDia;
+
+  // Insights em frases
+  const insights = [];
+
+  if(ritmoAtual > 0 && p.porDia > 0) {
+    const diff = ((ritmoAtual - p.porDia) / p.porDia) * 100;
+    if(diff > 10)
+      insights.push({ icon:"✅", text:`Seu ritmo atual (${fmtR0(ritmoAtual)}/dia) está ${Math.round(diff)}% acima do necessário. Continue assim!` });
+    else if(diff < -10)
+      insights.push({ icon:"⚠️", text:`Seu ritmo atual (${fmtR0(ritmoAtual)}/dia) está ${Math.round(Math.abs(diff))}% abaixo do necessário. Precisa de ${fmtR0(p.porDia)}/dia.` });
+    else
+      insights.push({ icon:"👍", text:`Seu ritmo atual está próximo do necessário. Mantenha o foco nos dias restantes.` });
+  }
+
+  if(ritmoAtual > 0) {
+    if(projecaoEmRisco)
+      insights.push({ icon:"📉", text:`No ritmo atual você fecha em ${fmtR0(projecaoFechamento)} — ${fmtR0(goal.valor - projecaoFechamento)} abaixo da meta.` });
+    else
+      insights.push({ icon:"📈", text:`No ritmo atual você fecha em ${fmtR0(projecaoFechamento)} — ${fmtR0(projecaoFechamento - goal.valor)} acima da meta!` });
+  }
+
+  if(dowOpportunities.length > 0) {
+    const best = dowOpportunities[0];
+    insights.push({ icon:"📅", text:`Você tem ${best.count} ${best.name}${best.count > 1 ? "s" : ""} restante${best.count > 1 ? "s" : ""} — seu melhor dia histórico. Potencial de ${fmtR0(best.potential)}.` });
+  }
+
+  if(diaFraco && todayEntry)
+    insights.push({ icon:"💪", text:`Hoje ficou abaixo do necessário. Para compensar, foque em ${fmtR0(porDiaAjustado)}/dia a partir de amanhã.` });
+
+  if(entries.length >= 7) {
+    const periodEntries = entries.filter(e => e.id >= iniStr && e.id <= limStr);
+    if(periodEntries.length >= 4) {
+      const melhorDia = periodEntries.reduce((a,b) => a.lucro > b.lucro ? a : b);
+      insights.push({ icon:"🏆", text:`Seu melhor dia do período: ${dateLong(melhorDia.id)} com ${fmtR0(melhorDia.lucro)}.` });
+    }
+  }
+
+  return { p, ritmoAtual, projecaoFechamento, projecaoEmRisco, dowOpportunities, insights, diaFraco, faltouHoje, porDiaAjustado };
+};
+
 // ── ÍCONES SVG CUSTOMIZADOS ───────────────────────────────────────────────────
 const Ico = {
   hoje:(a)=>(
@@ -409,37 +512,123 @@ function fmtDateShort(d) {
   return `${d.getDate()}/${d.getMonth()+1}`;
 }
 
-function GoalDetail({goal, p, onClose}) {
+function SmartGoalSheet({goal, entries, isPro, onClose, onAssinar, loadingCheckout}) {
+  const smart = buildSmartGoalData(entries, goal);
+  const { p, ritmoAtual, projecaoFechamento, projecaoEmRisco, dowOpportunities, insights, porDiaAjustado } = smart;
+
+  const blur = (children, extra={}) => isPro
+    ? <span style={extra}>{children}</span>
+    : <span style={{filter:"blur(6px)",userSelect:"none",pointerEvents:"none",...extra}}>{children}</span>;
+
   return (
     <div style={{position:"fixed",inset:0,zIndex:60,display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
       <div onClick={onClose} style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.75)"}}/>
-      <div style={{position:"relative",background:C.surface,borderRadius:"20px 20px 0 0",display:"flex",flexDirection:"column",animation:"sheetUp 0.35s cubic-bezier(0.16,1,0.3,1)"}}>
-        <div style={{display:"flex",justifyContent:"center",padding:"12px 0 0"}}>
-          <div style={{width:36,height:4,borderRadius:99,background:C.border}}/>
-        </div>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 18px 16px"}}>
-          <div>
-            <div style={{fontSize:10,color:C.sub,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:2}}>Meta — até {fmtDateShort(p.dataLimite)}</div>
-            <div style={{fontSize:16,fontWeight:800,color:C.text}}>{fmtR0(goal.valor)}</div>
+      <div style={{position:"relative",background:C.surface,borderRadius:"20px 20px 0 0",display:"flex",flexDirection:"column",animation:"sheetUp 0.35s cubic-bezier(0.16,1,0.3,1)",maxHeight:"88vh",overflow:"hidden"}}>
+
+        {/* Handle + header */}
+        <div style={{flexShrink:0}}>
+          <div style={{display:"flex",justifyContent:"center",padding:"12px 0 0"}}>
+            <div style={{width:36,height:4,borderRadius:99,background:C.border}}/>
           </div>
-          <button onClick={onClose} style={{background:C.card,border:"none",borderRadius:"50%",width:32,height:32,fontSize:18,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
-        </div>
-        <div style={{padding:"0 18px 40px",display:"flex",flexDirection:"column",gap:8}}>
-          {[
-            {l:"💰 Conquistado",  v:fmtR0(p.earned), c:C.green},
-            {l:"🎯 Faltam",       v:p.remaining>0?fmtR0(p.remaining):"Meta batida! 🏆", c:p.remaining>0?C.text:C.green},
-            {l:"📅 Dias restantes", v:`${p.dias} ${p.dias===1?"dia":"dias"}`, c:C.text},
-            ...(p.weeklyNeeded!==null
-              ? [{l:"📆 Precisa por semana", v:fmtR0(p.weeklyNeeded), c:C.yellow}]
-              : [{l:`📆 Precisa (${p.dias} ${p.dias===1?'dia restante':'dias restantes'})`, v:p.remaining>0?fmtR0(p.remaining):"—", c:C.yellow}]
-            ),
-            {l:"☀️ Precisa por dia", v:p.dias>0?fmtR0(p.porDia):"—", c:C.yellow},
-          ].map((s,i)=>(
-            <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:C.card,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`}}>
-              <span style={{fontSize:13,color:C.sub}}>{s.l}</span>
-              <span style={{fontSize:14,fontWeight:800,color:s.c}}>{s.v}</span>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 18px 14px"}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <div style={{fontSize:16,fontWeight:900,color:C.text}}>Metas Inteligentes</div>
+              <span style={{background:`${C.yellow}18`,border:`1px solid ${C.yellow}40`,borderRadius:99,padding:"3px 10px",fontSize:10,fontWeight:800,color:C.yellow,letterSpacing:"0.05em"}}>PRO</span>
             </div>
-          ))}
+            <button onClick={onClose} style={{background:C.card,border:"none",borderRadius:"50%",width:32,height:32,fontSize:18,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+          </div>
+        </div>
+
+        {/* Conteúdo scrollável */}
+        <div style={{overflowY:"auto",padding:"0 18px 32px",display:"flex",flexDirection:"column",gap:10}}>
+
+          {/* Bloco 1: Ritmo vs necessário */}
+          <div style={{background:C.card,borderRadius:12,padding:"14px",border:`1px solid ${C.border}`}}>
+            <div style={{fontSize:10,color:C.sub,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Ritmo atual vs necessário</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              <div style={{background:C.surface,borderRadius:10,padding:"10px 12px"}}>
+                <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Seu ritmo</div>
+                <div style={{fontSize:16,fontWeight:900,color:ritmoAtual>=p.porDia?C.green:C.orange}}>
+                  {blur(`${fmtR0(ritmoAtual)}/dia`)}
+                </div>
+              </div>
+              <div style={{background:C.surface,borderRadius:10,padding:"10px 12px"}}>
+                <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Precisa/dia</div>
+                <div style={{fontSize:16,fontWeight:900,color:C.yellow}}>{blur(fmtR0(p.porDia))}</div>
+              </div>
+              <div style={{background:C.surface,borderRadius:10,padding:"10px 12px"}}>
+                <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Precisa/semana</div>
+                <div style={{fontSize:16,fontWeight:900,color:C.yellow}}>{blur(p.weeklyNeeded?fmtR0(p.weeklyNeeded):"—")}</div>
+              </div>
+              <div style={{background:C.surface,borderRadius:10,padding:"10px 12px"}}>
+                <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Dias restantes</div>
+                <div style={{fontSize:16,fontWeight:900,color:C.text}}>{p.dias}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Bloco 2: Projeção de fechamento */}
+          <div style={{background:projecaoEmRisco?`${C.red}0d`:`${C.green}0d`,borderRadius:12,padding:"14px",border:`1px solid ${projecaoEmRisco?C.red+"30":C.green+"30"}`}}>
+            <div style={{fontSize:10,color:C.sub,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Projeção de fechamento</div>
+            <div style={{fontSize:24,fontWeight:900,color:projecaoEmRisco?C.red:C.green,marginBottom:4}}>
+              {blur(fmtR0(projecaoFechamento))}
+            </div>
+            <div style={{fontSize:12,color:C.sub}}>
+              {blur(projecaoEmRisco
+                ? `${fmtR0(goal.valor - projecaoFechamento)} abaixo da meta no ritmo atual`
+                : `${fmtR0(projecaoFechamento - goal.valor)} acima da meta no ritmo atual`
+              )}
+            </div>
+          </div>
+
+          {/* Bloco 3: Oportunidades por dia da semana */}
+          {dowOpportunities.length > 0 && (
+            <div style={{background:C.card,borderRadius:12,padding:"14px",border:`1px solid ${C.border}`}}>
+              <div style={{fontSize:10,color:C.sub,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Seus dias restantes</div>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {dowOpportunities.slice(0,4).map((d,i) => (
+                  <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",background:C.surface,borderRadius:8}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{fontSize:12,fontWeight:700,color:i===0?C.yellow:C.text}}>{d.name}s</span>
+                      <span style={{fontSize:11,color:C.sub}}>{d.count}x restante{d.count>1?"s":""}</span>
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontSize:12,fontWeight:800,color:i===0?C.yellow:C.text}}>{blur(fmtR0(d.potential))}</div>
+                      <div style={{fontSize:10,color:C.muted}}>{blur(`${fmtR0(d.avgLucro)}/dia`)}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Bloco 4: Insights */}
+          {insights.length > 0 && (
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {insights.map((ins,i) => (
+                <div key={i} style={{background:"rgba(96,165,250,0.07)",border:"1px solid rgba(96,165,250,0.15)",borderRadius:12,padding:"12px 14px",display:"flex",gap:10,alignItems:"flex-start"}}>
+                  <span style={{fontSize:16,flexShrink:0}}>{ins.icon}</span>
+                  <span style={{fontSize:12,color:C.sub,lineHeight:1.65}}>{blur(ins.text)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Botão assinar (free) */}
+          {!isPro && (
+            <div style={{marginTop:6,background:C.card,borderRadius:14,padding:"18px",border:`1px solid ${C.yellow}25`,textAlign:"center"}}>
+              <div style={{fontSize:14,fontWeight:900,color:C.yellow,marginBottom:6}}>⭐ Desbloqueie as Metas Inteligentes</div>
+              <div style={{fontSize:12,color:C.sub,lineHeight:1.6,marginBottom:16}}>Veja seus dados reais, projeções e descubra exatamente como bater sua meta.</div>
+              <button
+                onClick={onAssinar}
+                disabled={loadingCheckout}
+                style={{width:"100%",background:C.yellow,border:"none",borderRadius:10,padding:"13px",fontSize:14,fontWeight:900,color:"#0A0A0A",cursor:"pointer",fontFamily:"inherit",opacity:loadingCheckout?0.6:1}}
+              >
+                {loadingCheckout?"Aguarde...":"Assinar RouteMax Pro"}
+              </button>
+            </div>
+          )}
+
         </div>
       </div>
     </div>
@@ -495,9 +684,9 @@ function GoalSetup({onSave, initialValue, initialDate}) {
   );
 }
 
-function GoalSection({goal, onGoalChange, entries}) {
+function GoalSection({goal, onGoalChange, entries, isPro, onAssinar, loadingCheckout}) {
   const [editing, setEditing] = useState(!goal);
-  const [showDetail, setShowDetail] = useState(false);
+  const [showSmart, setShowSmart] = useState(false);
 
   const handleSave = (newGoal) => {
     saveGoal(newGoal);
@@ -518,7 +707,7 @@ function GoalSection({goal, onGoalChange, entries}) {
   return (
     <>
       <div style={{background:C.card,borderRadius:14,padding:"14px 16px",border:`1px solid ${C.border}`,marginBottom:14}}>
-        {/* Header discreto */}
+        {/* Header */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
           <div style={{fontSize:10,color:C.sub,letterSpacing:"0.08em",textTransform:"uppercase"}}>meta — até {fmtDateShort(p.dataLimite)}</div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -527,9 +716,9 @@ function GoalSection({goal, onGoalChange, entries}) {
           </div>
         </div>
 
-        {/* Barra amarelo → laranja */}
+        {/* Barra */}
         <div style={{height:6,background:"#ffffff08",borderRadius:99,overflow:"hidden",marginBottom:6}}>
-          <div style={{height:"100%",width:`${p.pct}%`,background:"linear-gradient(90deg, #FFD100, #FB923C)",borderRadius:99,transition:"width 0.5s ease"}}/>
+          <div style={{height:"100%",width:`${p.pct}%`,background:"linear-gradient(90deg,#FFD100,#FB923C)",borderRadius:99,transition:"width 0.5s ease"}}/>
         </div>
         <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:C.muted,marginBottom:12}}>
           <span style={{color:C.yellow,fontWeight:700}}>{Math.round(p.pct)}% conquistado</span>
@@ -548,20 +737,30 @@ function GoalSection({goal, onGoalChange, entries}) {
           </div>
         </div>
 
-        {/* Botão de detalhamento */}
-        <button onClick={()=>setShowDetail(true)} style={{width:"100%",padding:"9px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,fontSize:12,fontWeight:600,color:C.sub,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-          Ver detalhamento da meta
+        {/* Botão Metas Inteligentes */}
+        <button onClick={()=>setShowSmart(true)} style={{width:"100%",padding:"9px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,fontSize:12,fontWeight:600,color:C.sub,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+          Acessar Metas Inteligentes
+          <span style={{background:`${C.yellow}18`,border:`1px solid ${C.yellow}40`,borderRadius:99,padding:"2px 6px",fontSize:8,fontWeight:800,color:C.yellow,letterSpacing:"0.05em"}}>PRO</span>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
         </button>
       </div>
 
-      {showDetail && <GoalDetail goal={goal} p={p} onClose={()=>setShowDetail(false)}/>}
+      {showSmart && (
+        <SmartGoalSheet
+          goal={goal}
+          entries={entries}
+          isPro={isPro}
+          onClose={()=>setShowSmart(false)}
+          onAssinar={onAssinar}
+          loadingCheckout={loadingCheckout}
+        />
+      )}
     </>
   );
 }
 
 // ── TAB: HOJE ─────────────────────────────────────────────────────────────────
-function TabHoje({entries,name,onRegister,goal,onGoalChange}) {
+function TabHoje({entries,name,onRegister,goal,onGoalChange,isPro,onAssinar,loadingCheckout}) {
   const today=todayStr();
   const todayEntry=entries.find(e=>e.id===today);
   const last7=getLast7();
@@ -625,7 +824,7 @@ function TabHoje({entries,name,onRegister,goal,onGoalChange}) {
       )}
 
       {/* Meta do mês */}
-      <GoalSection goal={goal} onGoalChange={onGoalChange} entries={entries}/>
+      <GoalSection goal={goal} onGoalChange={onGoalChange} entries={entries} isPro={isPro} onAssinar={onAssinar} loadingCheckout={loadingCheckout}/>
 
       {/* Insight */}
       {insight&&(
@@ -1509,7 +1708,7 @@ function RouteMaxApp() {
   if(!user) return <AuthScreen onComplete={handleAuthComplete}/>;
 
   const screens={
-    hoje:<TabHoje entries={entries} name={user.name} onRegister={()=>setShowCalc(true)} goal={goal} onGoalChange={handleGoalChange}/>,
+    hoje:<TabHoje entries={entries} name={user.name} onRegister={()=>setShowCalc(true)} goal={goal} onGoalChange={handleGoalChange} isPro={user.isPro||false} onAssinar={handleAssinar} loadingCheckout={loadingCheckout}/>,
     historico:<TabHistorico entries={entries} onSelectEntry={e=>setSelectedEntry(e)}/>,
     comparar:<TabComparar onAssinar={handleAssinar} loadingCheckout={loadingCheckout} isPro={user.isPro||false}/>,
     perfil:<TabPerfil user={user} entries={entries} onClear={clearAll} onAssinar={handleAssinar} loadingCheckout={loadingCheckout}/>,
