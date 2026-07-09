@@ -223,7 +223,9 @@ const getInsight = (entries) => {
 };
 
 // ── MOTOR: METAS INTELIGENTES ─────────────────────────────────────────────────
-const DOW_NAMES_PT = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
+const DOW_NAMES_PT   = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
+const DOW_NAMES_SHORT = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
+const DOW_NAMES_FULL  = ["Domingos","Segundas","Terças","Quartas","Quintas","Sextas","Sábados"];
 
 const buildSmartGoalData = (entries, goal) => {
   const p = getGoalProgress(entries, goal);
@@ -684,9 +686,9 @@ function GoalSetup({onSave, initialValue, initialDate}) {
   );
 }
 
-function GoalSection({goal, onGoalChange, entries, isPro, onAssinar, loadingCheckout}) {
+function GoalSection({goal, onGoalChange, entries}) {
   const [editing, setEditing] = useState(!goal);
-  const [showSmart, setShowSmart] = useState(false);
+  const [showDetail, setShowDetail] = useState(false);
 
   const handleSave = (newGoal) => {
     saveGoal(newGoal);
@@ -707,7 +709,7 @@ function GoalSection({goal, onGoalChange, entries, isPro, onAssinar, loadingChec
   return (
     <>
       <div style={{background:C.card,borderRadius:14,padding:"14px 16px",border:`1px solid ${C.border}`,marginBottom:14}}>
-        {/* Header */}
+        {/* Header discreto */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
           <div style={{fontSize:10,color:C.sub,letterSpacing:"0.08em",textTransform:"uppercase"}}>meta — até {fmtDateShort(p.dataLimite)}</div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -716,9 +718,9 @@ function GoalSection({goal, onGoalChange, entries, isPro, onAssinar, loadingChec
           </div>
         </div>
 
-        {/* Barra */}
+        {/* Barra amarelo → laranja */}
         <div style={{height:6,background:"#ffffff08",borderRadius:99,overflow:"hidden",marginBottom:6}}>
-          <div style={{height:"100%",width:`${p.pct}%`,background:"linear-gradient(90deg,#FFD100,#FB923C)",borderRadius:99,transition:"width 0.5s ease"}}/>
+          <div style={{height:"100%",width:`${p.pct}%`,background:"linear-gradient(90deg, #FFD100, #FB923C)",borderRadius:99,transition:"width 0.5s ease"}}/>
         </div>
         <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:C.muted,marginBottom:12}}>
           <span style={{color:C.yellow,fontWeight:700}}>{Math.round(p.pct)}% conquistado</span>
@@ -737,30 +739,20 @@ function GoalSection({goal, onGoalChange, entries, isPro, onAssinar, loadingChec
           </div>
         </div>
 
-        {/* Botão Metas Inteligentes */}
-        <button onClick={()=>setShowSmart(true)} style={{width:"100%",padding:"9px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,fontSize:12,fontWeight:600,color:C.sub,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-          Acessar Metas Inteligentes
-          <span style={{background:`${C.yellow}18`,border:`1px solid ${C.yellow}40`,borderRadius:99,padding:"2px 6px",fontSize:8,fontWeight:800,color:C.yellow,letterSpacing:"0.05em"}}>PRO</span>
+        {/* Botão de detalhamento */}
+        <button onClick={()=>setShowDetail(true)} style={{width:"100%",padding:"9px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,fontSize:12,fontWeight:600,color:C.sub,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+          Ver detalhamento da meta
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
         </button>
       </div>
 
-      {showSmart && (
-        <SmartGoalSheet
-          goal={goal}
-          entries={entries}
-          isPro={isPro}
-          onClose={()=>setShowSmart(false)}
-          onAssinar={onAssinar}
-          loadingCheckout={loadingCheckout}
-        />
-      )}
+      {showDetail && <GoalDetail goal={goal} p={p} onClose={()=>setShowDetail(false)}/>}
     </>
   );
 }
 
 // ── TAB: HOJE ─────────────────────────────────────────────────────────────────
-function TabHoje({entries,name,onRegister,goal,onGoalChange,isPro,onAssinar,loadingCheckout}) {
+function TabHoje({entries,name,onRegister,goal,onGoalChange}) {
   const today=todayStr();
   const todayEntry=entries.find(e=>e.id===today);
   const last7=getLast7();
@@ -824,7 +816,7 @@ function TabHoje({entries,name,onRegister,goal,onGoalChange,isPro,onAssinar,load
       )}
 
       {/* Meta do mês */}
-      <GoalSection goal={goal} onGoalChange={onGoalChange} entries={entries} isPro={isPro} onAssinar={onAssinar} loadingCheckout={loadingCheckout}/>
+      <GoalSection goal={goal} onGoalChange={onGoalChange} entries={entries}/>
 
       {/* Insight */}
       {insight&&(
@@ -1312,6 +1304,252 @@ function TabComparar({onAssinar,loadingCheckout,isPro}) {
 }
 
 // ── TAB: PERFIL ───────────────────────────────────────────────────────────────
+// ── MOTOR: PERFIL INTELIGENTE ─────────────────────────────────────────────────
+const buildPerfilData = (entries) => {
+  if(!entries.length) return null;
+
+  // Médias por dia da semana
+  const byDow = {};
+  entries.forEach(e => {
+    const dow = new Date(e.id + "T12:00:00").getDay();
+    if(!byDow[dow]) byDow[dow] = [];
+    byDow[dow].push(e.lucro);
+  });
+  const avgByDow = {};
+  Object.entries(byDow).forEach(([dow, vals]) => {
+    avgByDow[+dow] = vals.reduce((a,b) => a+b, 0) / vals.length;
+  });
+  const dowRanking = Object.entries(avgByDow)
+    .map(([dow, avg]) => ({ dow:+dow, name:DOW_NAMES_SHORT[+dow], avg }))
+    .sort((a,b) => b.avg - a.avg);
+
+  const bestDow  = dowRanking[0];
+  const worstDow = dowRanking[dowRanking.length - 1];
+
+  // Médias gerais
+  const avgLucro    = entries.reduce((a,e) => a+e.lucro, 0) / entries.length;
+  const avgHora     = entries.reduce((a,e) => a+e.porHora, 0) / entries.length;
+  const avgKm       = entries.filter(e=>e.km>0).length
+    ? entries.filter(e=>e.km>0).reduce((a,e) => a+e.km, 0) / entries.filter(e=>e.km>0).length
+    : 0;
+  const avgEntregas = entries.filter(e=>e.entregas>0).length
+    ? entries.filter(e=>e.entregas>0).reduce((a,e) => a+e.entregas, 0) / entries.filter(e=>e.entregas>0).length
+    : 0;
+
+  // Melhor dia já registrado
+  const bestDay = entries.reduce((a,b) => b.lucro > a.lucro ? b : a, entries[0]);
+
+  // Semana atual vs semana passada
+  const hoje = new Date(); hoje.setHours(12,0,0,0);
+  const getWeekStart = (d, offset=0) => {
+    const r = new Date(d);
+    r.setDate(r.getDate() - r.getDay() + offset * 7);
+    r.setHours(0,0,0,0);
+    return r;
+  };
+  const thisWeekStart = getWeekStart(hoje, 0);
+  const lastWeekStart = getWeekStart(hoje, -1);
+  const lastWeekEnd   = new Date(thisWeekStart); lastWeekEnd.setDate(lastWeekEnd.getDate() - 1);
+
+  const thisWeekEntries = entries.filter(e => new Date(e.id+"T12:00:00") >= thisWeekStart);
+  const lastWeekEntries = entries.filter(e => {
+    const d = new Date(e.id+"T12:00:00");
+    return d >= lastWeekStart && d <= lastWeekEnd;
+  });
+
+  const thisWeekTotal = thisWeekEntries.reduce((a,e) => a+e.lucro, 0);
+  const lastWeekTotal = lastWeekEntries.reduce((a,e) => a+e.lucro, 0);
+  const weekDiff = lastWeekTotal > 0 ? ((thisWeekTotal - lastWeekTotal) / lastWeekTotal) * 100 : null;
+
+  // Últimas 4 semanas (totais)
+  const last4Weeks = [0,-1,-2,-3].map(offset => {
+    const start = getWeekStart(hoje, offset);
+    const end   = offset === 0 ? hoje : getWeekStart(hoje, offset+1);
+    const total = entries
+      .filter(e => { const d = new Date(e.id+"T12:00:00"); return d >= start && d <= end; })
+      .reduce((a,e) => a+e.lucro, 0);
+    return { label: offset === 0 ? "Essa" : `${Math.abs(offset)}sem`, total };
+  }).reverse();
+
+  // Insights
+  const insights = [];
+
+  if(dowRanking.length >= 2) {
+    const pct = Math.round(((bestDow.avg - worstDow.avg) / worstDow.avg) * 100);
+    if(pct > 10) {
+      insights.push({ icon:"📅", text:`Suas ${DOW_NAMES_FULL[bestDow.dow].toLowerCase()} rendem ${pct}% mais que suas ${DOW_NAMES_FULL[worstDow.dow].toLowerCase()}.` });
+    }
+  }
+
+  if(weekDiff !== null) {
+    if(weekDiff > 5) {
+      insights.push({ icon:"📈", text:`Essa semana você está ${Math.round(weekDiff)}% acima da semana passada. Ótimo ritmo!` });
+    } else if(weekDiff < -5) {
+      insights.push({ icon:"📉", text:`Essa semana está ${Math.round(Math.abs(weekDiff))}% abaixo da semana passada. Ainda dá pra recuperar.` });
+    }
+  }
+
+  if(entries.length >= 5) {
+    insights.push({ icon:"⏱", text:`Sua média de lucro por hora é ${fmtR0(avgHora)}. Cada hora trabalhada vale esse valor pra você.` });
+  }
+
+  if(bestDay) {
+    insights.push({ icon:"🏆", text:`Seu melhor dia foi ${new Date(bestDay.id+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"})}, com ${fmtR0(bestDay.lucro)} de lucro líquido.` });
+  }
+
+  if(avgEntregas > 0 && entries.length >= 3) {
+    insights.push({ icon:"📦", text:`Você faz em média ${Math.round(avgEntregas)} entregas por dia e lucra ${fmtR0(avgEntregas > 0 ? avgLucro / avgEntregas : 0)} por entrega.` });
+  }
+
+  return { avgLucro, avgHora, avgKm, avgEntregas, bestDay, bestDow, worstDow, dowRanking, thisWeekTotal, lastWeekTotal, weekDiff, last4Weeks, insights };
+};
+
+// ── PERFIL INTELIGENTE ────────────────────────────────────────────────────────
+function PerfilInteligente({ entries, isPro, onAssinar, loadingCheckout }) {
+  const data = buildPerfilData(entries);
+
+  const blur = (children, style={}) => isPro
+    ? <span style={style}>{children}</span>
+    : <span style={{filter:"blur(5px)", userSelect:"none", ...style}}>{children}</span>;
+
+  if(!data || entries.length < 2) {
+    return (
+      <div style={{background:C.card,borderRadius:14,padding:"18px",border:`1px solid ${C.border}`,marginBottom:16,textAlign:"center"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginBottom:10}}>
+          <div style={{fontSize:14,fontWeight:800,color:C.text}}>Perfil Inteligente</div>
+          <span style={{background:`${C.yellow}18`,border:`1px solid ${C.yellow}40`,borderRadius:99,padding:"3px 8px",fontSize:9,fontWeight:800,color:C.yellow}}>PRO</span>
+        </div>
+        <div style={{fontSize:12,color:C.sub,lineHeight:1.65}}>Registre pelo menos 2 dias para o app começar a identificar seus padrões.</div>
+      </div>
+    );
+  }
+
+  const maxAvg = Math.max(...data.dowRanking.map(d => d.avg));
+  const maxWeek = Math.max(...data.last4Weeks.map(w => w.total), 1);
+
+  return (
+    <div style={{marginBottom:16,display:"flex",flexDirection:"column",gap:10}}>
+      {/* Cabeçalho */}
+      <div style={{display:"flex",alignItems:"center",gap:8}}>
+        <div style={{fontSize:14,fontWeight:900,color:C.text}}>Perfil Inteligente</div>
+        <span style={{background:`${C.yellow}18`,border:`1px solid ${C.yellow}40`,borderRadius:99,padding:"3px 8px",fontSize:9,fontWeight:800,color:C.yellow,letterSpacing:"0.05em"}}>PRO</span>
+      </div>
+
+      {/* Card 1: Médias gerais */}
+      <div style={{background:C.card,borderRadius:12,padding:"14px 16px",border:`1px solid ${C.border}`}}>
+        <div style={{fontSize:10,color:C.sub,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>📊 Suas médias</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          <div style={{background:C.surface,borderRadius:8,padding:"10px 12px"}}>
+            <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Lucro/dia</div>
+            <div style={{fontSize:17,fontWeight:900,color:C.yellow}}>{blur(fmtR0(data.avgLucro))}</div>
+          </div>
+          <div style={{background:C.surface,borderRadius:8,padding:"10px 12px"}}>
+            <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Lucro/hora</div>
+            <div style={{fontSize:17,fontWeight:900,color:C.yellow}}>{blur(fmtR0(data.avgHora))}</div>
+          </div>
+          {data.avgKm > 0 && (
+            <div style={{background:C.surface,borderRadius:8,padding:"10px 12px"}}>
+              <div style={{fontSize:10,color:C.muted,marginBottom:3}}>KM/dia</div>
+              <div style={{fontSize:17,fontWeight:900,color:C.text}}>{blur(`${Math.round(data.avgKm)} km`)}</div>
+            </div>
+          )}
+          {data.avgEntregas > 0 && (
+            <div style={{background:C.surface,borderRadius:8,padding:"10px 12px"}}>
+              <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Entregas/dia</div>
+              <div style={{fontSize:17,fontWeight:900,color:C.text}}>{blur(Math.round(data.avgEntregas))}</div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Card 2: Ranking dias da semana */}
+      <div style={{background:C.card,borderRadius:12,padding:"14px 16px",border:`1px solid ${C.border}`}}>
+        <div style={{fontSize:10,color:C.sub,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>🗓 Seus melhores dias</div>
+        <div style={{display:"flex",flexDirection:"column",gap:7}}>
+          {data.dowRanking.map((d,i) => (
+            <div key={d.dow} style={{display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:12,fontWeight:700,color:C.sub,width:28,flexShrink:0}}>{d.name}</span>
+              <div style={{flex:1,height:6,background:"#ffffff08",borderRadius:99,overflow:"hidden"}}>
+                <div style={{height:"100%",width:`${(d.avg/maxAvg)*100}%`,background:i===0?"linear-gradient(90deg,#FFD100,#FB923C)":C.border,borderRadius:99,transition:"width 0.5s ease"}}/>
+              </div>
+              <span style={{fontSize:12,fontWeight:800,color:i===0?C.yellow:C.sub,width:56,textAlign:"right"}}>
+                {blur(fmtR0(d.avg))}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Card 3: Essa semana vs semana passada */}
+      <div style={{background:C.card,borderRadius:12,padding:"14px 16px",border:`1px solid ${C.border}`}}>
+        <div style={{fontSize:10,color:C.sub,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>📅 Semana atual vs anterior</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+          <div style={{background:C.surface,borderRadius:8,padding:"10px 12px"}}>
+            <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Essa semana</div>
+            <div style={{fontSize:17,fontWeight:900,color:C.text}}>{blur(fmtR0(data.thisWeekTotal))}</div>
+          </div>
+          <div style={{background:C.surface,borderRadius:8,padding:"10px 12px"}}>
+            <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Semana passada</div>
+            <div style={{fontSize:17,fontWeight:900,color:C.text}}>{blur(fmtR0(data.lastWeekTotal))}</div>
+          </div>
+        </div>
+        {data.weekDiff !== null && (
+          <div style={{background:C.surface,borderRadius:8,padding:"9px 12px",display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:16}}>{data.weekDiff >= 0 ? "📈" : "📉"}</span>
+            <span style={{fontSize:12,color:data.weekDiff >= 0 ? C.green : C.red, fontWeight:700}}>
+              {blur(`${data.weekDiff >= 0 ? "+" : ""}${Math.round(data.weekDiff)}% em relação à semana passada`)}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Card 4: Evolução 4 semanas */}
+      <div style={{background:C.card,borderRadius:12,padding:"14px 16px",border:`1px solid ${C.border}`}}>
+        <div style={{fontSize:10,color:C.sub,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>📈 Últimas 4 semanas</div>
+        <div style={{display:"flex",alignItems:"flex-end",gap:6,height:60}}>
+          {data.last4Weeks.map((w,i) => (
+            <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+              <div style={{fontSize:9,color:C.sub}}>{blur(w.total > 0 ? fmtR0(w.total) : "—")}</div>
+              <div style={{width:"100%",background:i===3?"linear-gradient(180deg,#FFD100,#FB923C)":C.border,borderRadius:"4px 4px 0 0",height:`${Math.max(8,(w.total/maxWeek)*48)}px`,transition:"height 0.5s ease"}}/>
+              <div style={{fontSize:9,color:C.muted}}>{w.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Insights */}
+      {data.insights.length > 0 && (
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {data.insights.map((ins,i) => (
+            <div key={i} style={{background:"rgba(96,165,250,0.06)",border:"1px solid rgba(96,165,250,0.15)",borderRadius:12,padding:"12px 14px",display:"flex",gap:10,alignItems:"flex-start"}}>
+              <span style={{fontSize:16,flexShrink:0,marginTop:1}}>{ins.icon}</span>
+              <div style={{fontSize:12,color:C.sub,lineHeight:1.65}}>
+                {isPro ? ins.text : <span style={{filter:"blur(5px)",userSelect:"none"}}>{ins.text}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Botão assinar — só Free */}
+      {!isPro && (
+        <div style={{background:C.card,border:`1px solid ${C.yellow}25`,borderRadius:14,padding:"16px 18px",textAlign:"center"}}>
+          <div style={{fontSize:13,fontWeight:800,color:C.yellow,marginBottom:6}}>⭐ Desbloqueie o Perfil Inteligente</div>
+          <div style={{fontSize:12,color:C.sub,lineHeight:1.6,marginBottom:14}}>Veja seus padrões reais e descubra como ganhar mais com seus dados.</div>
+          <button
+            onClick={onAssinar}
+            disabled={loadingCheckout}
+            style={{width:"100%",background:C.yellow,border:"none",borderRadius:10,padding:"13px",fontSize:14,fontWeight:900,color:"#0A0A0A",cursor:"pointer",fontFamily:"inherit",opacity:loadingCheckout?0.6:1}}
+          >
+            {loadingCheckout ? "Aguarde..." : "Assinar RouteMax Pro →"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 function TabPerfil({user,entries,onClear,onAssinar,loadingCheckout}) {
   const [confirm,setConfirm]=useState(false);
   const isCloud = !!user?.supaId;
@@ -1337,21 +1575,21 @@ function TabPerfil({user,entries,onClear,onAssinar,loadingCheckout}) {
           </div>
         </div>
       )}
-      {user.isPro ? (
-        <div style={{background:`${C.yellow}0d`,border:`1px solid ${C.yellow}30`,borderRadius:14,padding:"16px 18px",marginBottom:18,display:"flex",alignItems:"center",gap:14}}>
-          <div style={{width:40,height:40,borderRadius:"50%",background:C.yellow,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:20}}>⭐</div>
+      {user.isPro && (
+        <div style={{background:`${C.yellow}0d`,border:`1px solid ${C.yellow}30`,borderRadius:14,padding:"12px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:12}}>
+          <div style={{width:36,height:36,borderRadius:"50%",background:C.yellow,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:18}}>⭐</div>
           <div>
-            <div style={{fontSize:13,fontWeight:800,color:C.yellow,marginBottom:2}}>RouteMax Pro ativo</div>
-            <div style={{fontSize:12,color:C.sub,lineHeight:1.5}}>Você tem acesso a todos os recursos Pro.</div>
+            <div style={{fontSize:13,fontWeight:800,color:C.yellow,marginBottom:1}}>RouteMax Pro ativo</div>
+            <div style={{fontSize:11,color:C.sub}}>Acesso completo a todos os recursos.</div>
           </div>
         </div>
-      ) : (
-        <div style={{background:C.card,border:`1px solid ${C.yellow}25`,borderRadius:14,padding:"16px 18px",marginBottom:18}}>
-          <div style={{fontSize:13,fontWeight:800,color:C.yellow,marginBottom:4}}>⭐ Vire RouteMax Pro</div>
-          <div style={{fontSize:12,color:C.sub,lineHeight:1.6,marginBottom:12}}>Histórico ilimitado, comparativo de plataformas e alertas de horário de pico.</div>
-          <button style={{width:"100%",background:C.yellow,border:"none",borderRadius:10,padding:"11px",fontSize:13,fontWeight:900,color:"#0A0A0A",cursor:"pointer",fontFamily:"inherit",opacity:loadingCheckout?0.6:1}} onClick={onAssinar} disabled={loadingCheckout}>{loadingCheckout?"Aguarde...":"Assinar por R$19/mês"}</button>
-        </div>
       )}
+      <PerfilInteligente
+        entries={entries}
+        isPro={user.isPro||false}
+        onAssinar={onAssinar}
+        loadingCheckout={loadingCheckout}
+      />
       <div style={{borderTop:`1px solid ${C.border}`,paddingTop:16,display:"flex",flexDirection:"column",gap:10}}>
         {!confirm?(
           <button onClick={()=>setConfirm(true)} style={{background:"none",border:"none",color:C.muted,fontSize:13,cursor:"pointer",padding:0,fontFamily:"inherit",textAlign:"left"}}>
@@ -1708,7 +1946,7 @@ function RouteMaxApp() {
   if(!user) return <AuthScreen onComplete={handleAuthComplete}/>;
 
   const screens={
-    hoje:<TabHoje entries={entries} name={user.name} onRegister={()=>setShowCalc(true)} goal={goal} onGoalChange={handleGoalChange} isPro={user.isPro||false} onAssinar={handleAssinar} loadingCheckout={loadingCheckout}/>,
+    hoje:<TabHoje entries={entries} name={user.name} onRegister={()=>setShowCalc(true)} goal={goal} onGoalChange={handleGoalChange}/>,
     historico:<TabHistorico entries={entries} onSelectEntry={e=>setSelectedEntry(e)}/>,
     comparar:<TabComparar onAssinar={handleAssinar} loadingCheckout={loadingCheckout} isPro={user.isPro||false}/>,
     perfil:<TabPerfil user={user} entries={entries} onClear={clearAll} onAssinar={handleAssinar} loadingCheckout={loadingCheckout}/>,
