@@ -686,9 +686,9 @@ function GoalSetup({onSave, initialValue, initialDate}) {
   );
 }
 
-function GoalSection({goal, onGoalChange, entries}) {
+function GoalSection({goal, onGoalChange, entries, isPro, onAssinar, loadingCheckout}) {
   const [editing, setEditing] = useState(!goal);
-  const [showDetail, setShowDetail] = useState(false);
+  const [showSmart, setShowSmart] = useState(false);
 
   const handleSave = (newGoal) => {
     saveGoal(newGoal);
@@ -709,7 +709,6 @@ function GoalSection({goal, onGoalChange, entries}) {
   return (
     <>
       <div style={{background:C.card,borderRadius:14,padding:"14px 16px",border:`1px solid ${C.border}`,marginBottom:14}}>
-        {/* Header discreto */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
           <div style={{fontSize:10,color:C.sub,letterSpacing:"0.08em",textTransform:"uppercase"}}>meta — até {fmtDateShort(p.dataLimite)}</div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -717,17 +716,13 @@ function GoalSection({goal, onGoalChange, entries}) {
             <button onClick={()=>setEditing(true)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:6,padding:"3px 8px",fontSize:10,color:C.muted,cursor:"pointer",fontFamily:"inherit"}}>editar</button>
           </div>
         </div>
-
-        {/* Barra amarelo → laranja */}
         <div style={{height:6,background:"#ffffff08",borderRadius:99,overflow:"hidden",marginBottom:6}}>
-          <div style={{height:"100%",width:`${p.pct}%`,background:"linear-gradient(90deg, #FFD100, #FB923C)",borderRadius:99,transition:"width 0.5s ease"}}/>
+          <div style={{height:"100%",width:`${p.pct}%`,background:"linear-gradient(90deg,#FFD100,#FB923C)",borderRadius:99,transition:"width 0.5s ease"}}/>
         </div>
         <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:C.muted,marginBottom:12}}>
           <span style={{color:C.yellow,fontWeight:700}}>{Math.round(p.pct)}% conquistado</span>
           <span>{p.dias} {p.dias===1?"dia restante":"dias restantes"}</span>
         </div>
-
-        {/* Stats conquistado / faltam */}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
           <div style={{background:C.surface,borderRadius:10,padding:"10px 12px"}}>
             <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Conquistado</div>
@@ -738,21 +733,28 @@ function GoalSection({goal, onGoalChange, entries}) {
             <div style={{fontSize:16,fontWeight:900,color:p.remaining>0?C.text:C.green}}>{p.remaining>0?fmtR0(p.remaining):"Batida! 🏆"}</div>
           </div>
         </div>
-
-        {/* Botão de detalhamento */}
-        <button onClick={()=>setShowDetail(true)} style={{width:"100%",padding:"9px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,fontSize:12,fontWeight:600,color:C.sub,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-          Ver detalhamento da meta
+        <button onClick={()=>setShowSmart(true)} style={{width:"100%",padding:"9px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,fontSize:12,fontWeight:600,color:C.sub,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+          Acessar Metas Inteligentes
+          <span style={{background:`${C.yellow}18`,border:`1px solid ${C.yellow}40`,borderRadius:99,padding:"2px 6px",fontSize:8,fontWeight:800,color:C.yellow,letterSpacing:"0.05em"}}>PRO</span>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
         </button>
       </div>
-
-      {showDetail && <GoalDetail goal={goal} p={p} onClose={()=>setShowDetail(false)}/>}
+      {showSmart && (
+        <SmartGoalSheet
+          goal={goal}
+          entries={entries}
+          isPro={isPro}
+          onClose={()=>setShowSmart(false)}
+          onAssinar={onAssinar}
+          loadingCheckout={loadingCheckout}
+        />
+      )}
     </>
   );
 }
 
 // ── TAB: HOJE ─────────────────────────────────────────────────────────────────
-function TabHoje({entries,name,onRegister,goal,onGoalChange}) {
+function TabHoje({entries,name,onRegister,goal,onGoalChange,isPro,onAssinar,loadingCheckout}) {
   const today=todayStr();
   const todayEntry=entries.find(e=>e.id===today);
   const last7=getLast7();
@@ -816,7 +818,7 @@ function TabHoje({entries,name,onRegister,goal,onGoalChange}) {
       )}
 
       {/* Meta do mês */}
-      <GoalSection goal={goal} onGoalChange={onGoalChange} entries={entries}/>
+      <GoalSection goal={goal} onGoalChange={onGoalChange} entries={entries} isPro={isPro} onAssinar={onAssinar} loadingCheckout={loadingCheckout}/>
 
       {/* Insight */}
       {insight&&(
@@ -1906,7 +1908,7 @@ function RouteMaxApp() {
   if(!user) return <AuthScreen onComplete={handleAuthComplete}/>;
 
   const screens={
-    hoje:<TabHoje entries={entries} name={user.name} onRegister={()=>setShowCalc(true)} goal={goal} onGoalChange={handleGoalChange}/>,
+    hoje:<TabHoje entries={entries} name={user.name} onRegister={()=>setShowCalc(true)} goal={goal} onGoalChange={handleGoalChange} isPro={user.isPro||false} onAssinar={handleAssinar} loadingCheckout={loadingCheckout}/>,
     historico:<TabHistorico entries={entries} onSelectEntry={e=>setSelectedEntry(e)}/>,
     comparar:<TabComparar entries={entries} onAssinar={handleAssinar} loadingCheckout={loadingCheckout} isPro={user.isPro||false}/>,
     perfil:<TabPerfil user={user} entries={entries} onClear={clearAll}/>,
