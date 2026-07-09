@@ -363,7 +363,7 @@ const Ico = {
 };
 
 const TAB_ORDER  = ["hoje","historico","comparar","perfil"];
-const TAB_LABELS = {hoje:"Hoje",historico:"Dashboard",comparar:"Comparar",perfil:"Perfil"};
+const TAB_LABELS = {hoje:"Hoje",historico:"Dashboard",comparar:"Análises",perfil:"Perfil"};
 
 // ── META PROGRESS BAR ────────────────────────────────────────────────────────
 function MetaProgressBar({goal, entries}) {
@@ -1254,51 +1254,17 @@ function DayDetail({entry,onClose}) {
 }
 
 // ── TAB: COMPARAR ─────────────────────────────────────────────────────────────
-function TabComparar({onAssinar,loadingCheckout,isPro}) {
-  const fake=[{name:"iFood",v:81,color:C.red},{name:"99",v:96,color:C.green},{name:"Rappi",v:67,color:C.orange}];
-
-  if(isPro) {
-    return (
-      <div style={{padding:"4px 16px 28px"}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-          <h1 style={{fontSize:22,fontWeight:900,margin:0,letterSpacing:"-0.5px"}}>Comparar</h1>
-          <span style={{background:`${C.yellow}18`,border:`1px solid ${C.yellow}40`,borderRadius:99,padding:"3px 10px",fontSize:10,fontWeight:800,color:C.yellow,letterSpacing:"0.05em"}}>PRO</span>
-        </div>
-        <p style={{fontSize:13,color:C.sub,margin:"0 0 24px"}}>Compare seu desempenho entre períodos e plataformas</p>
-        <div style={{background:C.card,borderRadius:16,padding:"24px 20px",border:`1px solid ${C.borderHi}`,textAlign:"center"}}>
-          <div style={{fontSize:32,marginBottom:14}}>📊</div>
-          <div style={{fontSize:15,fontWeight:800,color:C.text,marginBottom:8}}>Em construção</div>
-          <div style={{fontSize:13,color:C.sub,lineHeight:1.7,maxWidth:260,margin:"0 auto"}}>
-            Comparações entre semanas, meses e plataformas chegam em breve. Seus dados já estão sendo coletados.
-          </div>
-        </div>
-      </div>
-    );
-  }
-
+function TabComparar({entries, onAssinar, loadingCheckout, isPro}) {
   return (
     <div style={{padding:"4px 16px 28px"}}>
-      <h1 style={{fontSize:22,fontWeight:900,margin:"4px 0 4px",letterSpacing:"-0.5px"}}>Comparar plataformas</h1>
-      <p style={{fontSize:13,color:C.sub,margin:"0 0 18px"}}>Qual está pagando mais essa semana</p>
-      <div style={{position:"relative",borderRadius:14,overflow:"hidden"}}>
-        <div style={{filter:"blur(6px)",pointerEvents:"none"}}>
-          {fake.map((f,i)=>(
-            <div key={i} style={{background:C.card,borderRadius:12,padding:"16px",marginBottom:10,border:`1px solid ${C.border}`}}>
-              <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
-                <span style={{fontSize:14,fontWeight:700,color:C.text}}>{f.name}</span>
-                <span style={{fontSize:14,fontWeight:900,color:f.color}}>R${f.v}/h</span>
-              </div>
-              <div style={{height:6,background:"#ffffff10",borderRadius:99}}><div style={{height:"100%",width:`${f.v}%`,background:f.color,borderRadius:99}}/></div>
-            </div>
-          ))}
-        </div>
-        <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",textAlign:"center",padding:"0 28px",background:"rgba(10,10,10,0.6)"}}>
-          <div style={{fontSize:28,marginBottom:10}}>🔒</div>
-          <div style={{fontSize:16,fontWeight:900,color:C.text,marginBottom:6}}>Recurso Pro</div>
-          <div style={{fontSize:12,color:C.sub,lineHeight:1.6,marginBottom:18,maxWidth:240}}>Veja qual plataforma está pagando mais na sua região agora.</div>
-          <button style={{background:C.yellow,border:"none",borderRadius:10,padding:"12px 24px",fontSize:13,fontWeight:900,color:"#0A0A0A",cursor:"pointer",fontFamily:"inherit",opacity:loadingCheckout?0.6:1}} onClick={onAssinar} disabled={loadingCheckout}>{loadingCheckout?"Aguarde...":"Assinar por R$19/mês"}</button>
-        </div>
-      </div>
+      <h1 style={{fontSize:22,fontWeight:900,margin:"4px 0 4px",letterSpacing:"-0.5px"}}>Análises</h1>
+      <p style={{fontSize:13,color:C.sub,margin:"0 0 18px"}}>Seus padrões e evolução ao longo do tempo</p>
+      <PerfilInteligente
+        entries={entries}
+        isPro={isPro}
+        onAssinar={onAssinar}
+        loadingCheckout={loadingCheckout}
+      />
     </div>
   );
 }
@@ -1550,7 +1516,7 @@ function PerfilInteligente({ entries, isPro, onAssinar, loadingCheckout }) {
 }
 
 
-function TabPerfil({user,entries,onClear,onAssinar,loadingCheckout}) {
+function TabPerfil({user,entries,onClear}) {
   const [confirm,setConfirm]=useState(false);
   const isCloud = !!user?.supaId;
   return (
@@ -1584,12 +1550,6 @@ function TabPerfil({user,entries,onClear,onAssinar,loadingCheckout}) {
           </div>
         </div>
       )}
-      <PerfilInteligente
-        entries={entries}
-        isPro={user.isPro||false}
-        onAssinar={onAssinar}
-        loadingCheckout={loadingCheckout}
-      />
       <div style={{borderTop:`1px solid ${C.border}`,paddingTop:16,display:"flex",flexDirection:"column",gap:10}}>
         {!confirm?(
           <button onClick={()=>setConfirm(true)} style={{background:"none",border:"none",color:C.muted,fontSize:13,cursor:"pointer",padding:0,fontFamily:"inherit",textAlign:"left"}}>
@@ -1948,8 +1908,8 @@ function RouteMaxApp() {
   const screens={
     hoje:<TabHoje entries={entries} name={user.name} onRegister={()=>setShowCalc(true)} goal={goal} onGoalChange={handleGoalChange}/>,
     historico:<TabHistorico entries={entries} onSelectEntry={e=>setSelectedEntry(e)}/>,
-    comparar:<TabComparar onAssinar={handleAssinar} loadingCheckout={loadingCheckout} isPro={user.isPro||false}/>,
-    perfil:<TabPerfil user={user} entries={entries} onClear={clearAll} onAssinar={handleAssinar} loadingCheckout={loadingCheckout}/>,
+    comparar:<TabComparar entries={entries} onAssinar={handleAssinar} loadingCheckout={loadingCheckout} isPro={user.isPro||false}/>,
+    perfil:<TabPerfil user={user} entries={entries} onClear={clearAll}/>,
   };
 
   return (
