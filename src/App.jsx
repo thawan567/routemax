@@ -1518,8 +1518,268 @@ function PerfilInteligente({ entries, isPro, onAssinar, loadingCheckout }) {
 }
 
 
+// ── RELATÓRIO MENSAL ──────────────────────────────────────────────────────────
+const MONTH_NAMES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+const DOW_FULL_REL = ["Domingo","Segunda","Terça","Quarta","Quinta","Sexta","Sábado"];
+
+function buildRelatorio(entries, ym) {
+  // ym = "2025-07"
+  const mes = entries.filter(e => e.id.startsWith(ym));
+  if (!mes.length) return null;
+
+  const totalLucro   = mes.reduce((a,e) => a + e.lucro, 0);
+  const totalGanho   = mes.reduce((a,e) => a + e.ganho, 0);
+  const totalCustos  = mes.reduce((a,e) => a + e.totalCustos, 0);
+  const totalHoras   = mes.reduce((a,e) => a + (e.horas||0), 0);
+  const totalKm      = mes.reduce((a,e) => a + (e.km||0), 0);
+  const totalEntregas= mes.reduce((a,e) => a + (e.entregas||0), 0);
+  const diasTrab     = mes.length;
+  const avgLucro     = totalLucro / diasTrab;
+  const avgHora      = totalHoras > 0 ? totalLucro / totalHoras : 0;
+  const avgEntregas  = totalEntregas > 0 ? totalEntregas / diasTrab : 0;
+
+  // Ranking por dia da semana
+  const byDow = {};
+  mes.forEach(e => {
+    const dow = new Date(e.id+"T12:00:00").getDay();
+    if (!byDow[dow]) byDow[dow] = [];
+    byDow[dow].push(e.lucro);
+  });
+  const dowRanking = Object.entries(byDow)
+    .map(([d,vals]) => ({ dow:+d, name:DOW_FULL_REL[+d], count:vals.length, avg: vals.reduce((a,b)=>a+b,0)/vals.length }))
+    .sort((a,b) => b.avg - a.avg);
+
+  // Top 3 dias
+  const top3 = [...mes].sort((a,b) => b.lucro - a.lucro).slice(0,3);
+
+  return { mes, totalLucro, totalGanho, totalCustos, totalHoras, totalKm, totalEntregas, diasTrab, avgLucro, avgHora, avgEntregas, dowRanking, top3 };
+}
+
+function getAvailableMonths(entries) {
+  const set = new Set(entries.map(e => e.id.slice(0,7)));
+  return [...set].sort().reverse();
+}
+
+function RelatorioSheet({ entries, onClose }) {
+  const months = getAvailableMonths(entries);
+  const [selMonth, setSelMonth] = useState(months[0] || "");
+  const [copied, setCopied] = useState(false);
+  const [csvDone, setCsvDone] = useState(false);
+
+  const rel = selMonth ? buildRelatorio(entries, selMonth) : null;
+
+  const fmtMonthLabel = (ym) => {
+    const [y, m] = ym.split("-");
+    return `${MONTH_NAMES[+m-1]} ${y}`;
+  };
+
+  const downloadCSV = () => {
+    if (!rel) return;
+    const header = "Data,Dia,Ganho Bruto (R$),Custos (R$),Lucro (R$),Horas,Entregas,KM,Lucro/hora (R$)";
+    const rows = rel.mes
+      .sort((a,b) => a.id.localeCompare(b.id))
+      .map(e => {
+        const d = new Date(e.id+"T12:00:00");
+        const dia = DOW_FULL_REL[d.getDay()];
+        return [
+          e.id,
+          dia,
+          e.ganho.toFixed(2).replace(".",","),
+          e.totalCustos.toFixed(2).replace(".",","),
+          e.lucro.toFixed(2).replace(".",","),
+          (e.horas||0).toFixed(1).replace(".",","),
+          e.entregas||0,
+          e.km||0,
+          (e.porHora||0).toFixed(2).replace(".",","),
+        ].join(";");
+      });
+
+    const summary = [
+      "",
+      "RESUMO DO MÊS",
+      `Mês;${fmtMonthLabel(selMonth)}`,
+      `Dias trabalhados;${rel.diasTrab}`,
+      `Ganho bruto total;${rel.totalGanho.toFixed(2).replace(".",",")}`,
+      `Total custos;${rel.totalCustos.toFixed(2).replace(".",",")}`,
+      `Lucro total;${rel.totalLucro.toFixed(2).replace(".",",")}`,
+      `Média lucro/dia;${rel.avgLucro.toFixed(2).replace(".",",")}`,
+      `Média lucro/hora;${rel.avgHora.toFixed(2).replace(".",",")}`,
+      `Total KM rodados;${rel.totalKm}`,
+      `Total entregas;${rel.totalEntregas}`,
+    ];
+
+    const csv = [header, ...rows, ...summary].join("\n");
+    const blob = new Blob(["\uFEFF"+csv], { type: "text/csv;charset=utf-8;" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href = url;
+    a.download = `RouteMax_${selMonth}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setCsvDone(true);
+    setTimeout(() => setCsvDone(false), 2500);
+  };
+
+  const copyWhatsApp = () => {
+    if (!rel) return;
+    const [y, m] = selMonth.split("-");
+    const lines = [
+      `🏍️ *Relatório ${MONTH_NAMES[+m-1]} ${y} — RouteMax*`,
+      ``,
+      `📅 Dias trabalhados: ${rel.diasTrab}`,
+      `💰 Lucro real: ${fmtR(rel.totalLucro)}`,
+      `📊 Média/dia: ${fmtR0(rel.avgLucro)}`,
+      `⏰ Média/hora: ${fmtR(rel.avgHora)}/h`,
+      rel.totalEntregas > 0 ? `📦 Total entregas: ${rel.totalEntregas}` : null,
+      rel.totalKm > 0 ? `🛣️ KM rodados: ${rel.totalKm} km` : null,
+      `💸 Total custos: ${fmtR(rel.totalCustos)}`,
+      ``,
+      rel.dowRanking.length > 0 ? `🏆 Melhor dia: ${rel.dowRanking[0].name} (${fmtR0(rel.dowRanking[0].avg)}/dia em média)` : null,
+      ``,
+      `_Calculado pelo RouteMax_`,
+    ].filter(l => l !== null).join("\n");
+
+    navigator.clipboard?.writeText(lines).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    });
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,zIndex:60,display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
+      <div onClick={onClose} style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.75)"}}/>
+      <div style={{position:"relative",background:C.surface,borderRadius:"20px 20px 0 0",display:"flex",flexDirection:"column",animation:"sheetUp 0.35s cubic-bezier(0.16,1,0.3,1)",maxHeight:"90vh",overflow:"hidden"}}>
+
+        {/* Handle + header */}
+        <div style={{flexShrink:0}}>
+          <div style={{display:"flex",justifyContent:"center",padding:"12px 0 0"}}>
+            <div style={{width:36,height:4,borderRadius:99,background:C.border}}/>
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 18px 14px"}}>
+            <div style={{fontSize:16,fontWeight:900,color:C.text}}>📄 Relatório Mensal</div>
+            <button onClick={onClose} style={{background:C.card,border:"none",borderRadius:"50%",width:32,height:32,fontSize:18,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+          </div>
+        </div>
+
+        {/* Conteúdo */}
+        <div style={{overflowY:"auto",padding:"0 18px 40px",display:"flex",flexDirection:"column",gap:12}}>
+
+          {/* Seletor de mês */}
+          {months.length === 0 ? (
+            <div style={{textAlign:"center",padding:"32px 0",color:C.muted,fontSize:13}}>Nenhum registro ainda.</div>
+          ) : (
+            <>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                {months.map(ym => (
+                  <button key={ym} onClick={() => setSelMonth(ym)} style={{
+                    padding:"7px 14px",borderRadius:99,fontSize:12,fontWeight:700,
+                    background: selMonth===ym ? "rgba(255,209,0,0.14)" : "none",
+                    color: selMonth===ym ? C.yellow : C.muted,
+                    border: `1px solid ${selMonth===ym ? C.yellow : C.border}`,
+                    cursor:"pointer", fontFamily:"inherit", transition:"all 0.15s"
+                  }}>{fmtMonthLabel(ym)}</button>
+                ))}
+              </div>
+
+              {rel && (
+                <>
+                  {/* Resumo */}
+                  <div style={{background:C.card,borderRadius:14,padding:"16px",border:`1px solid ${C.border}`}}>
+                    <div style={{fontSize:10,color:C.sub,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Resumo de {fmtMonthLabel(selMonth)}</div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                      {[
+                        {l:"Lucro total",    v:fmtR(rel.totalLucro),    c:rel.totalLucro>=0?C.green:C.red},
+                        {l:"Dias trabalhados",v:String(rel.diasTrab),   c:C.text},
+                        {l:"Média/dia",      v:fmtR0(rel.avgLucro),     c:C.yellow},
+                        {l:"Média/hora",     v:`${fmtR(rel.avgHora)}/h`,c:C.yellow},
+                        {l:"Total ganho bruto",v:fmtR(rel.totalGanho),  c:C.text},
+                        {l:"Total custos",   v:fmtR(rel.totalCustos),   c:C.red},
+                        ...(rel.totalKm>0?[{l:"KM rodados",v:`${rel.totalKm} km`,c:C.text}]:[]),
+                        ...(rel.totalEntregas>0?[{l:"Entregas",v:String(rel.totalEntregas),c:C.text}]:[]),
+                      ].map((s,i) => (
+                        <div key={i} style={{background:C.surface,borderRadius:10,padding:"10px 12px"}}>
+                          <div style={{fontSize:10,color:C.muted,marginBottom:3}}>{s.l}</div>
+                          <div style={{fontSize:15,fontWeight:900,color:s.c}}>{s.v}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Ranking dias da semana */}
+                  {rel.dowRanking.length > 1 && (
+                    <div style={{background:C.card,borderRadius:14,padding:"16px",border:`1px solid ${C.border}`}}>
+                      <div style={{fontSize:10,color:C.sub,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>🗓 Dias mais lucrativos do mês</div>
+                      {(() => {
+                        const maxAvg = Math.max(...rel.dowRanking.map(d=>d.avg));
+                        return rel.dowRanking.map((d,i) => (
+                          <div key={d.dow} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+                            <span style={{fontSize:11,fontWeight:700,color:i===0?C.yellow:C.sub,width:60,flexShrink:0}}>{d.name}</span>
+                            <div style={{flex:1,height:5,background:"#ffffff08",borderRadius:99,overflow:"hidden"}}>
+                              <div style={{height:"100%",width:`${(d.avg/maxAvg)*100}%`,background:i===0?"linear-gradient(90deg,#FFD100,#FB923C)":C.border,borderRadius:99}}/>
+                            </div>
+                            <span style={{fontSize:11,fontWeight:800,color:i===0?C.yellow:C.sub,width:52,textAlign:"right"}}>{fmtR0(d.avg)}</span>
+                            <span style={{fontSize:10,color:C.muted,width:24,textAlign:"right"}}>{d.count}x</span>
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                  )}
+
+                  {/* Top 3 dias */}
+                  {rel.top3.length > 0 && (
+                    <div style={{background:C.card,borderRadius:14,padding:"16px",border:`1px solid ${C.border}`}}>
+                      <div style={{fontSize:10,color:C.sub,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>🏆 Melhores dias</div>
+                      {rel.top3.map((e,i) => (
+                        <div key={e.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderBottom:i<rel.top3.length-1?`1px solid ${C.border}`:"none"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:10}}>
+                            <span style={{fontSize:16,width:24,textAlign:"center"}}>{["🥇","🥈","🥉"][i]}</span>
+                            <div>
+                              <div style={{fontSize:12,fontWeight:700,color:C.text}}>{dateLong(e.id)}</div>
+                              <div style={{fontSize:11,color:C.sub}}>{fmtN(e.horas||0)}h · {e.entregas||0} entregas</div>
+                            </div>
+                          </div>
+                          <div style={{fontSize:16,fontWeight:900,color:C.green}}>{fmtR0(e.lucro)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Botões de exportação */}
+                  <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:4}}>
+                    <button onClick={downloadCSV} style={{
+                      width:"100%",padding:"14px",background:C.yellow,border:"none",borderRadius:12,
+                      fontSize:14,fontWeight:900,color:"#0A0A0A",cursor:"pointer",fontFamily:"inherit",
+                      display:"flex",alignItems:"center",justifyContent:"center",gap:8
+                    }}>
+                      {csvDone ? "✅ Baixando…" : "⬇️ Baixar planilha (.csv)"}
+                    </button>
+                    <button onClick={copyWhatsApp} style={{
+                      width:"100%",padding:"14px",background:"none",border:`1px solid ${C.border}`,
+                      borderRadius:12,fontSize:14,fontWeight:700,color:C.sub,cursor:"pointer",
+                      fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:8
+                    }}>
+                      {copied ? "✅ Copiado! Cola no WhatsApp" : "📤 Copiar resumo (WhatsApp)"}
+                    </button>
+                  </div>
+
+                  {/* Dica CSV */}
+                  <div style={{background:"rgba(96,165,250,0.06)",border:"1px solid rgba(96,165,250,0.12)",borderRadius:10,padding:"11px 13px",display:"flex",gap:10,alignItems:"flex-start"}}>
+                    <span style={{fontSize:14,flexShrink:0}}>💡</span>
+                    <span style={{fontSize:11,color:C.sub,lineHeight:1.6}}>O arquivo CSV abre direto no Excel ou Google Sheets. Cada linha é um dia registrado, com todos os seus dados.</span>
+                  </div>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TabPerfil({user,entries,onClear}) {
   const [confirm,setConfirm]=useState(false);
+  const [showRelatorio,setShowRelatorio]=useState(false);
   const isCloud = !!user?.supaId;
   return (
     <div style={{padding:"4px 16px 28px"}}>
@@ -1552,6 +1812,23 @@ function TabPerfil({user,entries,onClear}) {
           </div>
         </div>
       )}
+      {/* Relatório mensal */}
+      {entries.length > 0 && (
+        <button
+          onClick={()=>setShowRelatorio(true)}
+          style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 16px",marginBottom:4,display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",fontFamily:"inherit"}}
+        >
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:20}}>📄</span>
+            <div style={{textAlign:"left"}}>
+              <div style={{fontSize:13,fontWeight:700,color:C.text}}>Relatório Mensal</div>
+              <div style={{fontSize:11,color:C.sub,marginTop:1}}>Exportar CSV ou copiar resumo</div>
+            </div>
+          </div>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.muted} strokeWidth="2" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+      )}
+
       <div style={{borderTop:`1px solid ${C.border}`,paddingTop:16,display:"flex",flexDirection:"column",gap:10}}>
         {!confirm?(
           <button onClick={()=>setConfirm(true)} style={{background:"none",border:"none",color:C.muted,fontSize:13,cursor:"pointer",padding:0,fontFamily:"inherit",textAlign:"left"}}>
@@ -1567,6 +1844,8 @@ function TabPerfil({user,entries,onClear}) {
           </div>
         )}
       </div>
+
+      {showRelatorio && <RelatorioSheet entries={entries} onClose={()=>setShowRelatorio(false)}/>}
     </div>
   );
 }
